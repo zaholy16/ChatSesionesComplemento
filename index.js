@@ -13,6 +13,7 @@ session = require('express-session');
 
 //Declaramos nuestra variable app con la que manejaremos nuestro server (express)
 var app = express();
+const nameBot = 'BotMez';
 
 //Inicializamos el server en el puerto 3030
 var server = app.listen(3030, function () {
@@ -65,9 +66,18 @@ db.connect(function (err) {
 //Declaramos un ruta estatica para raiz
 app.use(express.static('./'));
 
+var salas;
+
 //Funcion para iniciar la conexión | Iniciamos la conexión con socket
 io.on('connection', function (socket) {
   var req = socket.request;
+
+  //Realizamos la consulta para extraer las salas existentes
+  db.query("SELECT * FROM salas", function(err,rows,fields){
+	  salas = rows;
+	  //console.log(salas);
+	  socket.emit("showRooms", salas); //Hacemos el emit a la función de showRooms
+  });
 
   console.log(req.session); //Imprimos en pantalla la sesión
 
@@ -84,16 +94,19 @@ io.on('connection', function (socket) {
 	//Funcion para ingresar. | Aqui vamos a validar el login del usuario
 	socket.on("login", function(data){
 	  const user = data.user, //Obtenemos el nombre usuario
-	  pass = data.pass; //Obtenemos la contraseña del usuario
-
+	  pass = data.pass, //Obtenemos la contraseña del usuario
+	  roomID = data.roomID, //Obtenemos el ID de la sala 
+	  roomName = data.roomName; //Obtenemos el nombre de la sala
+	  
 	  //Revisamos que si este dado de alta en la base de datos, con el username
 	  db.query("SELECT * FROM users WHERE Username=?", [user], function(err, rows, fields){
 		  if(rows.length == 0){ //si al recorrer la columnas, nos da un 0, quiere decir que no esta registrado
-		  	console.log("El usuario no existe, favor de registrarse!"); //y mandamos este mensaje que no existe
+		  	socket.emit("error"); //y mandamos este mensaje que no existe
 		  }else{ //si no es igual a 0, quiere decir que si existe
 		  		console.log(rows); //imprimimos las columnas existentes
 		  		
-		  		const dataUser = rows[0].Username, //Declaramos un variable, para obtener el username
+		  		const userid = rows[0].id,
+				dataUser = rows[0].Username, //Declaramos un variable, para obtener el username
 			  	dataPass = rows[0].Password, //Para obtener la contraseña
 			  	dataCorreo = rows[0].email; //Para obtener el correo
 
@@ -104,11 +117,22 @@ io.on('connection', function (socket) {
 				//Ahora Validamos, si el usuario y contraseña introducidos son iguales a los que se tiene en la base
 				if(user == dataUser && pass == dataPass){ //parametros user y pass definidos en el script (index.html)
 					console.log("Usuario correcto!"); //si si, ingresa correctamente
-					socket.emit("logged_in", {user: user, email: dataCorreo}); //se hace un emit con los datos ingresados para la sesión
-					req.session.userID = rows[0].id; //mandamos el userID a la sesión
-					req.session.Username = dataUser; //mandamos el username a la sesión
-					req.session.correo = dataCorreo; //mandamos el correo a la sesión
-					req.session.save(); //y guaardamos esos datos en la sesión
+
+							socket.emit("logged_in", {
+														user: user, 
+														email: dataCorreo, 
+														roomID: roomID, 
+														roomName: roomName}); //se hace un emit con los datos ingresados para la sesión
+
+							req.session.userID = userid; //mandamos el userID a la sesión
+							req.session.Username = dataUser; //mandamos el username a la sesión
+							req.session.correo = dataCorreo; //mandamos el correo a la sesión
+							req.session.roomID = roomID; //mandamos el id de la sala a la sesión
+							req.session.roomName = roomName; //mandamos el nombre de la sala a la sesión
+							req.session.save(); //y guaardamos esos datos en la sesión
+							socket.join(req.session.roomName);
+							bottxt('entrarSala');
+							console.log(req.session);
 				}else{
 				  	socket.emit("invalido"); //si no son iguales los datos ingtesados con los que estan en la base, mandamos un mensaje de invalido
 				}
@@ -126,38 +150,57 @@ io.on('connection', function (socket) {
 		if(user != "" && pass != "" && email != ""){
 			console.log("Registrando el usuario: " + user); //mandamos el mensaje de que lo estamos registrando
 			//mandamos la consulta para insertar el usuario con los datos ingresados que guardamos en user, pass y email
-		  	db.query("INSERT INTO users(`Username`, `Password`, `email`) VALUES(?, ?, ?)", [user, pass, email], function(err, result){
-			  if(!!err) //si ocurrio un fallo, regresamos un error
-			  throw err;
+		  	db.query("INSERT INTO users(`Username`, `Password`, `email`) VALUES(?, ?, ?)", [user, pass, email], function(err, rows, result){
+			if(!!err)
+			throw err;
+				/*const valiUser = rows[0].Username, //Declaramos un variable, para obtener el username
+				    valiCorreo = rows[0].email; //Para obtener el correo
 
-			  console.log(result); //mandamos un console.log para revisar los resultados
-
-			  console.log('Usuario ' + user + " se dio de alta correctamente!."); //mandamos un console.log para revisar si se dio de alta o no
-			  socket.emit('UsuarioOK'); //si todo esta bien, mandamos un socket.emit diciendo que el usuario fue agregado
+			  if(user == valiUser && email == valiCorreo){ 
+				socket.emit("errorRR");
+			  }*/
+			  else{
+				console.log('Usuario ' + user + " se dio de alta correctamente!."); //mandamos un console.log para revisar si se dio de alta o no
+				socket.emit('UsuarioOK'); //si todo esta bien, mandamos un socket.emit diciendo que el usuario fue agregado
+			  }
 			});
 		}else{
 			socket.emit('vacio');
 		}
 	});
+
+	socket.on('cambiarSala', function(data){
+		const IDroom = data.IDroom,
+		nameRoom = data.nameRoom;
+
+		socket.leave(req.session.roomName);
+
+		req.session.roomID = IDroom;
+		req.session.roomName = nameRoom;
+
+		socket.join(req.session.roomName);
+		bottxt('cambiarSala');
+	})
 	
 	//Función para crear el mensaje nuevo.
 	socket.on('mjsNuevo', function(data){ 
 		
-		const sala = 0; // definimos el id de la sala para posterior función.
+		//const sala = 0; // definimos el id de la sala para posterior función.
+
 			//Realizamos la consulta para agregar los mensajes en la base de datos
-			db.query("INSERT INTO mensajes(`mensaje`, `user_id`, `sala_id`, `fecha`) VALUES(?, ?, ?, CURDATE())", [data, req.session.userID, sala], function(err, result){
+			db.query("INSERT INTO mensajes(`mensaje`, `user_id`, `sala_id`, `fecha`) VALUES(?, ?, ?, CURDATE())", [data, req.session.userID, req.session.roomID], function(err, result){
 			  if(!!err) //si ocurrio un fallo, devuelve un error
 			  throw err;
 
 			  console.log(result); //console.log para revisar los resultados
 
 			  console.log('Mensaje dado de alta correctamente!.'); //console.log para revisar que si se alla dado de alta
-					//mandamos con un broadcast (es decir a todos los usuarios) el mensaje
-			  		socket.broadcast.emit('mensaje', {
-						usuario: req.session.Username, //con el nombre de usuario
-						mensaje: data //y el mensaje
-					});
 					
+					socket.broadcast.to(req.session.roomName).emit('mensaje',{
+						usuario: req.session.Username,
+						mensaje: data
+					});
+
 					//de igual manera hacemos un emit del mensaje (es decir q lo envie)
 					socket.emit('mensaje', {
 						usuario: req.session.Username, //con el nombre de usuario
@@ -169,6 +212,35 @@ io.on('connection', function (socket) {
 	
 	//Función para salir de la sesión
 	socket.on('salir', function(request, response){
+		bottxt('abandonarSala');
+		socket.leave(req.session.roonName);
 		req.session.destroy(); //si presionamos el boton de salir, se destruye la sesión con la que se habia ingresado
 	});
+
+	function bottxt(data){
+		entrarSala = '<b>Bienvenido a la sala ' + req.session.roomName + '</b>';
+		cambiarSala = '<b>Haz cambiado de sala. Tu nueva sala es: ' + req.session.roomName + '</b>';
+		abandonarSala = '<b>Usuario: ' + req.session.Username + 'a abandonado la sala. </b>'
+
+		if(data == 'entrarSala'){
+			socket.emit('mensaje',{
+				usuario: nameBot,
+				mensaje: entrarSala
+			});
+		}
+
+		if(data == 'cambiarSala'){
+			socket.emit('mensaje',{
+				usuario: nameBot,
+				mensaje: cambiarSala
+			});
+		}
+
+		if(data == 'abandonarSala'){
+			socket.emit('mensaje',{
+				usuario: nameBot,
+				mensaje: abandonarSala
+			})
+		}
+	}
 });
