@@ -1,18 +1,3 @@
-/*
- Navicat Premium Data Transfer
-
- Source Server         : Telematica
- Source Server Type    : MySQL
- Source Server Version : 80024
- Source Host           : localhost:3306
- Source Schema         : chat
-
- Target Server Type    : MySQL
- Target Server Version : 80024
- File Encoding         : 65001
-
- Date: 28/05/2021 10:03:58
-*/
 create database chat;
 use chat;
 SET NAMES utf8mb4;
@@ -56,6 +41,10 @@ CREATE TABLE `salas` (
 -- Records of salas
 -- ----------------------------
 BEGIN;
+INSERT INTO salas (nombre_sala, fecha_creación) VALUES ('Progra', current_date());
+INSERT INTO salas (nombre_sala, fecha_creación) VALUES ('Redes', current_date());
+INSERT INTO salas (nombre_sala, fecha_creación) VALUES ('Probabilidad', current_date());
+INSERT INTO salas (nombre_sala, fecha_creación) VALUES ('Métodos Numéricos', current_date());
 COMMIT;
 
 -- ----------------------------
